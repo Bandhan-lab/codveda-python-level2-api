@@ -19,10 +19,14 @@ class APIError(Exception):
     """Raised when an API request or response cannot be processed."""
 
 
-def fetch_data(url: str = DEFAULT_API_URL, timeout: int = DEFAULT_TIMEOUT) -> list[dict[str, Any]]:
+def fetch_data(
+    url: str = DEFAULT_API_URL, timeout: int | float = DEFAULT_TIMEOUT
+) -> list[dict[str, Any]]:
     """Fetch JSON data from an API endpoint."""
-    if not url.strip():
-        raise ValueError("API URL cannot be empty.")
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("API URL must be a non-empty string.")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ValueError("Timeout must be a positive number.")
     if timeout <= 0:
         raise ValueError("Timeout must be greater than zero.")
 
@@ -52,10 +56,21 @@ def fetch_data(url: str = DEFAULT_API_URL, timeout: int = DEFAULT_TIMEOUT) -> li
 def normalize_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep only user records with the expected fields."""
     normalized: list[dict[str, Any]] = []
+    required_fields = ("id", "name", "username", "email", "address", "company")
 
-    for user in users:
+    for index, user in enumerate(users):
         if not isinstance(user, dict):
-            continue
+            raise APIError(f"Invalid user record at index {index}: expected an object.")
+
+        missing_fields = [field for field in required_fields if field not in user]
+        if missing_fields:
+            fields = ", ".join(missing_fields)
+            raise APIError(f"Invalid user record at index {index}: missing {fields}.")
+
+        if not isinstance(user["address"], dict):
+            raise APIError(f"Invalid user record at index {index}: address must be an object.")
+        if not isinstance(user["company"], dict):
+            raise APIError(f"Invalid user record at index {index}: company must be an object.")
 
         normalized.append(
             {
@@ -77,6 +92,13 @@ def normalize_users(users: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def search_users(users: list[dict[str, Any]], keyword: str) -> list[dict[str, Any]]:
     """Search users by name, username, email, city, or company."""
+    if not isinstance(users, list):
+        raise ValueError("Users must be provided as a list.")
+    if not isinstance(keyword, str):
+        raise ValueError("Search keyword must be a string.")
+    if any(not isinstance(user, dict) for user in users):
+        raise ValueError("Each user must be provided as an object.")
+
     keyword = keyword.strip().lower()
     if not keyword:
         return users
@@ -119,44 +141,47 @@ def display_users(users: list[dict[str, Any]], heading: str = "API Results") -> 
 
 def main() -> None:
     """Run the interactive API data explorer."""
-    print("=" * 105)
-    print("                         API DATA EXPLORER")
-    print("=" * 105)
-    print(f"Endpoint: {DEFAULT_API_URL}")
-    print(f"Timeout: {DEFAULT_TIMEOUT} seconds")
-
     try:
-        raw_users = fetch_data()
-        users = normalize_users(raw_users)
-    except (APIError, ValueError) as exc:
-        print(f"Error: {exc}")
-        return
+        print("=" * 105)
+        print("                         API DATA EXPLORER")
+        print("=" * 105)
+        print(f"Endpoint: {DEFAULT_API_URL}")
+        print(f"Timeout: {DEFAULT_TIMEOUT} seconds")
 
-    display_users(users, "Fetched Users")
+        try:
+            raw_users = fetch_data()
+            users = normalize_users(raw_users)
+        except (APIError, ValueError) as exc:
+            print(f"Error: {exc}")
+            return
 
-    while True:
-        print("\nOptions:")
-        print("1. Search users")
-        print("2. Refresh API data")
-        print("3. Exit")
+        display_users(users, "Fetched Users")
 
-        choice = input("Choose an option: ").strip()
+        while True:
+            print("\nOptions:")
+            print("1. Search users")
+            print("2. Refresh API data")
+            print("3. Exit")
 
-        if choice == "1":
-            keyword = input("Search keyword (name/email/city/company): ")
-            matches = search_users(users, keyword)
-            display_users(matches, "Search Results")
-        elif choice == "2":
-            try:
-                users = normalize_users(fetch_data())
-                display_users(users, "Refreshed API Data")
-            except APIError as exc:
-                print(f"Error: {exc}")
-        elif choice == "3":
-            print("Goodbye!")
-            break
-        else:
-            print("Invalid option. Please choose 1-3.")
+            choice = input("Choose an option: ").strip()
+
+            if choice == "1":
+                keyword = input("Search keyword (name/email/city/company): ")
+                matches = search_users(users, keyword)
+                display_users(matches, "Search Results")
+            elif choice == "2":
+                try:
+                    users = normalize_users(fetch_data())
+                    display_users(users, "Refreshed API Data")
+                except APIError as exc:
+                    print(f"Error: {exc}")
+            elif choice == "3":
+                print("Goodbye!")
+                break
+            else:
+                print("Invalid option. Please choose 1-3.")
+    except (EOFError, KeyboardInterrupt):
+        print("\nExiting API Data Explorer.")
 
 
 if __name__ == "__main__":
